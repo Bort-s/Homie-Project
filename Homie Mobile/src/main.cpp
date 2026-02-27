@@ -1,64 +1,70 @@
 #include <Arduino.h>
-#include <DHT.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_BME680.h"
+
 
 //Variables
-float humidity;
-float temperature;
-float mq135Value;
-float mq135Voltage;
-int R0;
+double temperature;
+double humidity;
+double pressure;
+double gas_resistance;
+double altitude;
 
-#define mq135Pin 3
-#define buzzerPin 5
+#define SEALEVELPRESSURE_HPA (1012.5)
 
-//DHT22
-#define DHTPIN 7
-#define DHTTYPE DHT22
-DHT dht(DHTPIN, DHTTYPE);
+Adafruit_BME680 MainSensor;
 
 void setup() {
   Serial.begin(115200);
-  dht.begin();
 
-  ledcSetup(0, 2000, 8);
-  ledcAttachPin(buzzerPin, 0);
-  ledcWrite(0, 0);
+  if (!MainSensor.begin()) {
+	Serial.println("Could not find a valid BME680 sensor");
+	while (1);
+  } else {
+    Serial.println("BME680 sensor Inicialized!");
+  }
 
-  pinMode(mq135Pin, INPUT);
+  MainSensor.setTemperatureOversampling(BME680_OS_16X);
+  MainSensor.setHumidityOversampling(BME680_OS_16X);
+  MainSensor.setPressureOversampling(BME680_OS_16X);
+  MainSensor.setIIRFilterSize(BME680_FILTER_SIZE_15);
+  MainSensor.setGasHeater(320, 100);
 }
 
 void loop() {
-  humidity = dht.readHumidity();
-  temperature = dht.readTemperature();
+  if (!MainSensor.performReading()) {
+    Serial.println("Failed to perform reading :(");
+    return;
+  }
 
-  Serial.print("Humidity: ");
-  Serial.print(humidity);
-  Serial.print(" %\t");
+  temperature = MainSensor.temperature;
+  humidity = MainSensor.humidity;
+  pressure = MainSensor.pressure;
+  gas_resistance = MainSensor.gas_resistance;
+  altitude = MainSensor.readAltitude(SEALEVELPRESSURE_HPA);
 
-  Serial.print("Temperature: ");
+
+  Serial.print("Temperature = ");
   Serial.print(temperature);
   Serial.println(" *C");
 
-  mq135Value = analogRead(mq135Pin);
-  mq135Voltage = mq135Value * (5.0 / 1023.0);
+  Serial.print("Pressure = ");
+  Serial.print(pressure / 100.0);
+  Serial.println(" hPa");
 
-  float RS = ((5.0 * 10.0) / mq135Voltage) - 10.0;
-  float R0 = 10000.0;
-  float ratio = RS / R0;
-  float ppm = pow(10, ((log10(ratio) - 0.76) / -0.52));
+  Serial.print("Humidity = ");
+  Serial.print(humidity);
+  Serial.println(" %");
 
-  Serial.print("Gas Sensor Reading: ");
-  Serial.println(mq135Value);
+  Serial.print("Gas = ");
+  Serial.print(gas_resistance / 1000.0);
+  Serial.println(" KOhms");
 
-  Serial.print("Gas Sensor PPM: ");
-  Serial.println(ppm);
+  Serial.print("Approx. Altitude = ");
+  Serial.print(altitude);
+  Serial.println(" m");
 
-  if (mq135Value > 1000) {
-    Serial.println("Gas level is high! Activating buzzer.");
-    ledcWrite(0, 127);
-  } else {
-    ledcWrite(0, 0);
-  }
-
-  delay(500);
+  delay(2000);
 }
