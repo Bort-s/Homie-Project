@@ -18,12 +18,16 @@ Adafruit_BME680 MainSensor;
 
 void setup() {
   Serial.begin(115200);
+  Wire.begin(6, 7);
 
   if (!MainSensor.begin()) {
-	Serial.println("Could not find a valid BME680 sensor");
-	while (1);
+	
+	while (1) {
+      Serial.println("Could not find a valid BME680 sensor, check wiring!");
+      delay(1000);
+    }
   } else {
-    Serial.println("BME680 sensor Inicialized!");
+    Serial.println("BME680 sensor inicialized!");
   }
 
   MainSensor.setTemperatureOversampling(BME680_OS_16X);
@@ -48,7 +52,7 @@ void loop() {
 
   Serial.print("Temperature = ");
   Serial.print(temperature);
-  Serial.println(" *C");
+  Serial.println(" °C");
 
   Serial.print("Pressure = ");
   Serial.print(pressure / 100.0);
@@ -65,6 +69,16 @@ void loop() {
   Serial.print("Approx. Altitude = ");
   Serial.print(altitude);
   Serial.println(" m");
+
+  Serial.print("\n\n");
+
+  if (gas_resistance / 1000.0 < 20) {
+    tone(5, 500);
+  } else {
+    noTone(5);
+  }
+
+
 
   delay(2000);
 }
