@@ -1,84 +1,158 @@
-#include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
+#include <Arduino.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+#include <stdio.h>
+#include <iostream>
 
 
 //Variables
-double temperature;
-double humidity;
-double pressure;
-double gas_resistance;
-double altitude;
+int temperature;
+int humidity;
+int gas_resistance;
+int alertData;
 
-#define SEALEVELPRESSURE_HPA (1012.5)
+const int buzzer = 5;
+
+//Definitions
+#define SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
+#define CHARACTERISTIC_TX   "12345678-1234-1234-1234-1234567890ac"
+#define CHARACTERISTIC_RX   "dcba4321-1234-1234-1234-abcdef654321"
+
 
 Adafruit_BME680 MainSensor;
 
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(6, 7);
+BLECharacteristic *pTxCharacteristic;
+bool deviceConnected = false;
+bool sendData = true;
 
-  if (!MainSensor.begin()) {
-	
-	while (1) {
-      Serial.println("Could not find a valid BME680 sensor, check wiring!");
-      delay(1000);
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+        deviceConnected = true;
+        Serial.println("Cliente conectado");
     }
-  } else {
-    Serial.println("BME680 sensor inicialized!");
-  }
 
-  MainSensor.setTemperatureOversampling(BME680_OS_16X);
-  MainSensor.setHumidityOversampling(BME680_OS_16X);
-  MainSensor.setPressureOversampling(BME680_OS_16X);
-  MainSensor.setIIRFilterSize(BME680_FILTER_SIZE_15);
-  MainSensor.setGasHeater(320, 100);
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      Serial.println("Cliente desconectado");
+
+      BLEDevice::startAdvertising();
+      Serial.println("Reiniciando advertising...");
+}
+};
+
+class MyCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        String value = pCharacteristic->getValue().c_str();
+
+        if (value.length() > 0) {
+            Serial.print("Comando recibido: ");
+            Serial.println(value.c_str());
+
+            if (value == "CMD:START") {
+                sendData = true;
+            }
+            if (value == "CMD:STOP") {
+                sendData = false;
+            }
+        }
+    }
+};
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(6, 7);
+    if (!MainSensor.begin()) {
+        Serial.println("No se encontró un sensor BME680, revise la conexión.");
+        delay(1000);
+        while (1);
+    }
+
+    MainSensor.setTemperatureOversampling(BME680_OS_16X);
+    MainSensor.setHumidityOversampling(BME680_OS_16X);
+    MainSensor.setIIRFilterSize(BME680_FILTER_SIZE_3);
+    MainSensor.setGasHeater(320, 150);
+
+    pinMode(buzzer, OUTPUT);
+
+    BLEDevice::init("HMMB000001");
+
+    BLEServer *pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+
+    pTxCharacteristic = pService->createCharacteristic(
+                        CHARACTERISTIC_TX,
+                        BLECharacteristic::PROPERTY_NOTIFY
+                      );
+
+    BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
+                        CHARACTERISTIC_RX,
+                        BLECharacteristic::PROPERTY_WRITE
+                      );
+
+                      pTxCharacteristic->addDescriptor(new BLE2902());
+
+    pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+    pService->start();
+
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->start();
+
+    Serial.println("Esperando conexión...");
 }
 
 void loop() {
-  if (!MainSensor.performReading()) {
+
+    if (!MainSensor.performReading()) {
     Serial.println("Failed to perform reading :(");
-    return;
-  }
+    delay(1000);
+    while (1) {}
+    }
 
-  temperature = MainSensor.temperature;
-  humidity = MainSensor.humidity;
-  pressure = MainSensor.pressure;
-  gas_resistance = MainSensor.gas_resistance;
-  altitude = MainSensor.readAltitude(SEALEVELPRESSURE_HPA);
+    temperature = MainSensor.temperature;
+    humidity = MainSensor.humidity;
+    gas_resistance = MainSensor.gas_resistance;
 
+    if (gas_resistance < 10000) {
+        alertData = 1;
+        digitalWrite(buzzer, HIGH);
+    } else if (gas_resistance < 50000) {
+        digitalWrite(buzzer, LOW);
+    } else if (gas_resistance < 100000) {
+        alertData = 3;
+        digitalWrite(buzzer, LOW);
+    } else {
+        alertData = 4;
+        digitalWrite(buzzer, LOW);
+    }
 
-  Serial.print("Temperature = ");
-  Serial.print(temperature);
-  Serial.println(" °C");
+    if (deviceConnected && sendData) {
 
-  Serial.print("Pressure = ");
-  Serial.print(pressure / 100.0);
-  Serial.println(" hPa");
+        String temperatureData = "TEMP:" + String(temperature);
+        String humidityData = "HUM:" + String(humidity);
+        String airData = "PRES:" + String(alertData);
 
-  Serial.print("Humidity = ");
-  Serial.print(humidity);
-  Serial.println(" %");
+        pTxCharacteristic->setValue(temperatureData.c_str());
+        pTxCharacteristic->notify();
+        Serial.println(temperatureData);
 
-  Serial.print("Gas = ");
-  Serial.print(gas_resistance / 1000.0);
-  Serial.println(" KOhms");
+        pTxCharacteristic->setValue(humidityData.c_str());
+        pTxCharacteristic->notify();
+        Serial.println(humidityData);
 
-  Serial.print("Approx. Altitude = ");
-  Serial.print(altitude);
-  Serial.println(" m");
+        pTxCharacteristic->setValue(airData.c_str());
+        pTxCharacteristic->notify();
+        Serial.println(airData);
 
-  Serial.print("\n\n");
-
-  if (gas_resistance / 1000.0 < 20) {
-    tone(5, 500);
-  } else {
-    noTone(5);
-  }
-
-
-
-  delay(2000);
+        delay(1000);
+    }
 }
