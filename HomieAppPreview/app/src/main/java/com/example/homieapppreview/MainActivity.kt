@@ -24,21 +24,34 @@ import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +61,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import com.example.homieapppreview.ui.theme.HomieAppPreviewTheme
 import java.util.UUID
-import androidx.compose.ui.layout.ContentScale
 
 class MainActivity : ComponentActivity() {
     var temperature by mutableStateOf("N/A")
@@ -56,7 +68,7 @@ class MainActivity : ComponentActivity() {
     var airQuality by mutableStateOf("N/A")
     var isConnected by mutableStateOf(false)
 
-    // UUIDs: Asegúrate que coincidan con el ESP32
+
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab")
     private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ac")
     private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -93,9 +105,6 @@ class MainActivity : ComponentActivity() {
         @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d("BLE_DEBUG", "Servicios descubiertos.")
-
-                // Debug: Listar todo para confirmar UUIDs
                 gatt.services.forEach { service ->
                     Log.d("BLE_DEBUG", "Servicio encontrado: ${service.uuid}")
                     service.characteristics.forEach { char ->
@@ -107,12 +116,10 @@ class MainActivity : ComponentActivity() {
                 val txChar = service?.getCharacteristic(TX_UUID)
 
                 if (txChar != null) {
-                    Log.d("BLE_DEBUG", "TX encontrada. Habilitando notificaciones...")
                     gatt.setCharacteristicNotification(txChar, true)
 
                     val descriptor = txChar.getDescriptor(CCCD_UUID)
                     if (descriptor != null) {
-                        Log.d("BLE_DEBUG", "Escribiendo en descriptor CCCD...")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                         } else {
@@ -275,7 +282,7 @@ fun HomieAppPreviewLayout(
                         if (foundDeviceName.isEmpty()) {
                             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
                                 bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
-                                Toast.makeText(context, "Buscando...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Searching...", Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             onConnectClick()
@@ -299,9 +306,9 @@ fun HomieAppPreviewLayout(
         }
 
         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-            DataRow(Icons.Filled.Home, "Temperature: ", temperatureData, R.color.blue_homie)
-            DataRow(Icons.Filled.Settings, "Humidity: ", humidityData, R.color.blue_homie)
-            DataRow(Icons.Filled.Warning, "Air Quality: ", airQualityData, R.color.blue_homie)
+            DataRow(painterResource(R.drawable.device_thermostat), "Temperature: ", temperatureData, R.color.blue_homie)
+            DataRow(painterResource(R.drawable.humidity), "Humidity: ", humidityData, R.color.blue_homie)
+            DataRow(painterResource(R.drawable.air_quality), "Air Quality: ", airQualityData, R.color.blue_homie)
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -340,7 +347,7 @@ fun HomieAppPreviewLayout(
                 Text(
                     text = advise,
                     color = Color.Black,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 8.dp, start = 32.dp, end = 28.dp)
                 )
@@ -352,14 +359,14 @@ fun HomieAppPreviewLayout(
 }
 
 @Composable
-fun DataRow(imageVector: ImageVector, type: String, data: String, color: Int) {
+fun DataRow(painterResource: Painter, type: String, data: String, color: Int) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).height(56.dp)
             .clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surface),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = imageVector, contentDescription = null,
+            painter = painterResource, contentDescription = null,
             tint = colorResource(color),
             modifier = Modifier.size(64.dp).padding(horizontal = 8.dp)
         )
@@ -385,7 +392,7 @@ fun HomieAppPreviewPreview() {
         HomieAppPreviewUI(
             temperature = "25",
             humidity = "60",
-            airQuality = "300",
+            airQuality = "4",
             connected = true,
             bluetoothAdapter = null,
             onConnectClick = {}
