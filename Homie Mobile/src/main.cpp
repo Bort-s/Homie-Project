@@ -65,13 +65,14 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void setup() {
+    delay(2000);
     Serial.begin(115200);
     Wire.begin(6, 7);
     if (!MainSensor.begin()) {
         Serial.println("No se encontró un sensor BME680, revise la conexión.");
         delay(1000);
         while (1);
-    }
+    } else Serial.println("Sensor BME680 inicializado correctamente.");
 
     MainSensor.setTemperatureOversampling(BME680_OS_16X);
     MainSensor.setHumidityOversampling(BME680_OS_16X);
@@ -79,6 +80,7 @@ void setup() {
     MainSensor.setGasHeater(320, 150);
 
     pinMode(buzzer, OUTPUT);
+    noTone(buzzer);
 
     BLEDevice::init("HMMB000001");
 
@@ -124,15 +126,15 @@ void loop() {
 
     if (gas_resistance < 10000) {
         alertData = 1;
-        digitalWrite(buzzer, HIGH);
+        tone(buzzer, 2700);
     } else if (gas_resistance < 50000) {
-        digitalWrite(buzzer, LOW);
+        noTone(buzzer);
     } else if (gas_resistance < 100000) {
         alertData = 3;
-        digitalWrite(buzzer, LOW);
+        noTone(buzzer);
     } else {
         alertData = 4;
-        digitalWrite(buzzer, LOW);
+        noTone(buzzer);
     }
 
     if (deviceConnected && sendData) {

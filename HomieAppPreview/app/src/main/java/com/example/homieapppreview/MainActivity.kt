@@ -392,7 +392,7 @@ fun HomieAppPreviewPreview() {
         HomieAppPreviewUI(
             temperature = "25",
             humidity = "60",
-            airQuality = "4",
+            airQuality = "5",
             connected = true,
             bluetoothAdapter = null,
             onConnectClick = {}
