@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -52,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
@@ -74,10 +76,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@PreviewScreenSizes
+// @PreviewScreenSizes
 @Composable
 fun HomieAppApp() {
     //Bluetooth
+    HomieMobile.temp = 27
+    HomieMobile.hum = 45
 
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
@@ -123,6 +127,11 @@ enum class AppDestinations(
 fun HomeScreen() {
     var expandedInfo by remember { mutableStateOf(false) }
     var showSheet by remember { mutableStateOf(false) }
+    
+    var colorTemp by remember { mutableStateOf(colorTemperature(HomieMobile.temp)) }
+    var colorHum by remember { mutableStateOf(colorHumidity(HomieMobile.hum)) }
+    var colorAQ by remember { mutableStateOf(Color.Green) }
+
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -171,18 +180,33 @@ fun HomeScreen() {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item() {
                     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp, top = 12.dp)) {
-                        PrincipalText("Vista general", 28, modifier = Modifier.padding(bottom = 8.dp))
+                        PrincipalText("Vista General", 24, modifier = Modifier.padding(bottom = 8.dp))
                         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, top = 8.dp)) {
                             Column(
                                 verticalArrangement = Arrangement.SpaceEvenly,
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .weight(1f)
+                                    .height(160.dp)
+                                    .clip(RoundedCornerShape(20.dp))
                                     .background(MaterialTheme.colorScheme.surface)
-                                    .clip(RoundedCornerShape(8.dp))
                                 ) {
-                                Text("AA")
-                                Text("AB")
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(colorTemp.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = ImageVector.vectorResource(id = R.drawable.device_thermostat),
+                                        contentDescription = "Termostato",
+                                        tint = colorTemp,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                PrincipalText("${HomieMobile.temp}°C", 32)
+                                SecondaryText("Temperatura", 16)
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(
@@ -190,11 +214,57 @@ fun HomeScreen() {
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .weight(1f)
+                                    .height(160.dp)
+                                    .clip(RoundedCornerShape(20.dp))
                                     .background(MaterialTheme.colorScheme.surface)
-                                    .clip(RoundedCornerShape(8.dp))
                             ) {
-                                Text("BA")
-                                Text("BB")
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(colorHum.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = ImageVector.vectorResource(id = R.drawable.water_drop),
+                                        contentDescription = "Humedad",
+                                        tint = colorHum,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                PrincipalText("${HomieMobile.hum}%", 32)
+                                SecondaryText("H. Relativa", 16)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(110.dp)
+                                .padding(top = 8.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.surface)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(colorAQ.copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = ImageVector.vectorResource(id = R.drawable.air),
+                                    contentDescription = "Aire",
+                                    tint = colorAQ,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.fillMaxHeight(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.Start
+                                ) {
+                                PrincipalText("Calidad del aire", 16)
+                                SecondaryText("Exellent", 14)
+                                SecondaryText("AQI", 14)
                             }
                         }
                     }
@@ -210,8 +280,6 @@ fun DevicesScreen()  {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp).fillMaxSize()
         ) {
-
-
 
         }
     }
@@ -241,8 +309,8 @@ fun InfoModalBottomSheet(onDismiss: () -> Unit) {
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            PrincipalText("Información", 24)
-            SecondaryText("Esta es la app de Homie para controlar tus dispositivos.", 16)
+            PrincipalText("Acerca de", 24)
+            SecondaryText("**que es homie**", 16)
         }
     }
 }
@@ -275,7 +343,57 @@ fun AppPreview() {
 }
 
 // Functions
+fun colorTemperature(temperature: Int): Color {
+    var r: Int
+    var g: Int
+    if ( temperature > 21) {
+        if (temperature < 25) {
+            g = 255
+            r = 255 - 64 * (26 - temperature)
+        } else {
+            r = 255
+            g = 255 - 51 * (temperature - 26)
+        }
+    } else {
+        if (temperature > 16) {
+            g = 255
+            r = 255 - 64 * (temperature - 17)
+        } else {
+            r = 255
+            g = 255 - 51 * (17 - temperature)
+        }
+    }
+    if (r < 0) r = 0
+    if (g < 0) g = 0
 
+    return Color(r, g, 0)
+}
+
+fun colorHumidity(Humidity: Int): Color {
+    var r: Int
+    var g: Int
+    if ( Humidity > 45) {
+        if (Humidity < 56) {
+            g = 255
+            r = 255 - 26 * (55 - Humidity)
+        } else {
+            r = 255
+            g = 255 - 17 * (Humidity - 55)
+        }
+    } else {
+        if (Humidity > 35) {
+            g = 255
+            r = 255 - 26 * (Humidity - 35)
+        } else {
+            r = 255
+            g = 255 - 17 * (35 - Humidity)
+        }
+    }
+    if (r < 0) r = 0
+    if (g < 0) g = 0
+
+    return Color(r, g, 0)
+}
 
 //Objects
 object HomieMobile {
@@ -283,6 +401,7 @@ object HomieMobile {
     var id = ""
     var temp = 0
     var hum = 0
+    var AQ = 0
     var connected = false
     var declared = false
 }
