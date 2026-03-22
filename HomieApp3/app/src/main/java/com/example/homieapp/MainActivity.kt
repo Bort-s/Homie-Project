@@ -1,9 +1,16 @@
 package com.example.homieapp
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.Image
@@ -54,11 +61,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.example.homieapp.model.Block
 import com.example.homieapp.ui.theme.HomieAppTheme
 import com.example.homieapp.viewmodels.GuidesViewModel
@@ -69,6 +82,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        NotificationHelper.createNotificationChannel(this)
         setContent {
             HomieAppTheme {
                 HomieAppApp()
@@ -80,6 +94,8 @@ class MainActivity : ComponentActivity() {
 // @PreviewScreenSizes
 @Composable
 fun HomieAppApp() {
+    var guidePage by rememberSaveable { mutableIntStateOf(0) }
+
     // Homie Mobile
     val homieMobileData = remember { GetHomieMobileData() }
     var homieMobile by remember { mutableStateOf(HomieMobile()) }
@@ -90,7 +106,8 @@ fun HomieAppApp() {
             homieMobile = homieMobile.copy(
                 temperature = homieMobileData.getLatest(homieMobile.temperature),
                 humidity = homieMobileData.getLatest(homieMobile.humidity),
-                state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.AQI)
+                aqi = if(homieMobile.aqi in 0..500) homieMobile.aqi + (-10..10).random() else homieMobile.aqi,
+                state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
             )
         }
     }
@@ -137,9 +154,15 @@ fun HomieAppApp() {
                 AppDestinations.HOME -> HomeScreen(homieMobile,
                     onNavigateToGuide = { currentDestination = AppDestinations.GUIDE })
                 AppDestinations.DEVICES -> DevicesScreen()
-                AppDestinations.Alerts -> AlertsScreen()
-                    AppDestinations.GUIDE -> GuideScreen(onNavigateToHome = { currentDestination = AppDestinations.HOME })
-            }}
+                AppDestinations.Alerts -> AlertsScreen(homieMobile)
+                    AppDestinations.GUIDE -> GuideScreen(
+                        guidePage,
+                        onNavigateToHome = { currentDestination = AppDestinations.HOME },
+                        addPage = { guidePage += 1 },
+                        restPage = { guidePage -= 1 }
+                    )
+                }
+            }
         }
     }
 }
@@ -163,10 +186,9 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
 
     val colorTemperature = colorTemperature(homieMobile.temperature)
     val colorHumidity = colorHumidity(homieMobile.humidity)
-    val colorAQ = Color.Green
+    val colorAQ = colorAQI(homieMobile.aqi)
 
-
-
+    val percentage: Float = ((500 - (homieMobile.aqi).toFloat().coerceIn(0f, 500f)) / 500)
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -310,7 +332,22 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                 ) {
                                 PrincipalText("Calidad del aire", 16)
                                 SecondaryText("Exellent", 14)
-                                SecondaryText("AQI: ${homieMobile.AQI}, State: ${homieMobile.state}", 14)
+                                SecondaryText("AQI: ${homieMobile.aqi}, State: ${homieMobile.state}", 14)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(72.dp)
+                                    .height(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(125, 125, 125))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(percentage)
+                                        .clip(CircleShape)
+                                        .background(colorAQ)
+                                )
                             }
                         }
                     }
@@ -376,31 +413,42 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
 @Composable
 fun DevicesScreen()  {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .padding(start = 32.dp, end = 32.dp, top = 8.dp)
-                .fillMaxSize()
-        ) {
 
+    }
+}
+
+@Composable
+fun AlertsScreen(homieMobile: HomieMobile) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize().padding(vertical = 16.dp, horizontal = 8.dp)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)) {
+                PrincipalText("Historial de Alertas", 24, modifier = Modifier.padding(vertical = 8.dp))
+            }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    AlertCard(
+                        homieMobile.name,
+                        homieMobile.state,
+                        homieMobile.temperature.toString(),
+                        colorTemperature(homieMobile.temperature),
+                        "02:41"
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun AlertsScreen() {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-
-    }
-}
-
-@Composable
-fun GuideScreen(onNavigateToHome: () -> Unit) {
+fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Unit, restPage: () -> Unit) {
     val viewmodel: GuidesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val allGuides by viewmodel.listGuides.collectAsState()
-    var currentGuide by remember { mutableIntStateOf(0) }
+    var currentGuide by remember { mutableIntStateOf(guidePage) }
     val guide = allGuides[currentGuide]
-
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -410,13 +458,12 @@ fun GuideScreen(onNavigateToHome: () -> Unit) {
                 .fillMaxSize()
         ) {
             // Header
-            Row(modifier = Modifier
+            Column(modifier = Modifier
                 .fillMaxWidth()
-                .padding()) {
+                .padding(bottom = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)) {
+                    .fillMaxWidth()) {
                     IconButton(onClick = onNavigateToHome
                     ) {
                         Icon(
@@ -434,14 +481,99 @@ fun GuideScreen(onNavigateToHome: () -> Unit) {
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
+                Box(modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF0055d4).copy(alpha = 0.1f))
+                    ) {
+                    Text(
+                        "${guide.chapter} ● CAPITULO 0${guide.number}",
+                        color = Color(0xFF0055d4),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+
+                    )
+                }
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
-                    Text(text = "Sección: ${guide.chapter}")
+                    Text(
+                        "Capitulo ${guide.number}: ",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 42.sp
+                    )
+                    Text(
+                        guide.title,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 42.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-
                 items(guide.blocks) { bloque ->
                     BlockGuide(bloque)
+                }
+                item {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = {
+                            if (currentGuide > 0) {
+                                restPage()
+                                currentGuide -= 1
+                            }
+                        },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color(0xFF525252)
+                            ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.arrow_back_ios),
+                                    contentDescription = "Regresar",
+                                )
+                                Text(
+                                    "Regresar\nCapitulo",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                )
+                            }
+                        }
+                        Button(onClick = {
+                            if (currentGuide < allGuides.size - 1) {
+                                addPage()
+                                currentGuide += 1
+                            }
+                        },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0055d4),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            enabled = currentGuide < allGuides.size - 1,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                                Text(
+                                    "Siguiente\nCapitulo",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                )
+                                Icon(
+                                    painter = painterResource(id = R.drawable.arrow_forward_ios),
+                                    contentDescription = "Siguiente",
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
@@ -498,14 +630,77 @@ fun BlockGuide(block: Block) {
                     .padding(start = 16.dp, bottom = 8.dp)
                     .fillMaxWidth()
             ){
-                PrincipalText(block.title, 32,)
+                PrincipalText(block.title, 24)
             }
-            SecondaryText(block.content, 16, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+            Text(
+                text = block.content,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+                fontWeight = FontWeight.Light,
+                textAlign = TextAlign.Justify
+            )
         }
         Spacer(modifier = Modifier.height(16.dp))
 }
 
-
+@Composable
+fun AlertCard(title: String, state: Int, value: String, color: Color, hour: String) {
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(20.dp))
+        .background(MaterialTheme.colorScheme.surface)) {
+        Row(modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 8.dp, start = 16.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(64.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(color.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(iconState[state]),
+                    contentDescription = "Icono",
+                    tint = color,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .width(78.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                Text(
+                    text = hour,
+                    color = Color(125, 125, 125),
+                    fontSize = 24.sp,
+                )
+            }
+        }
+        SecondaryText(advice[state], 16, modifier = Modifier.padding(start = 100.dp, end = 16.dp))
+        Text(
+            text = value,
+            color = color,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 16.dp, bottom = 16.dp),
+        )
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
 
 
 // Composable Preview
@@ -516,23 +711,42 @@ fun HomeScreenPreview() {
         val homieMobile = HomieMobile(
             25,
             45,
-            AQI = 67,
+            aqi = 67,
             state = 0,
             id = "000001",
             name = "Homie Mobile",
             register = true,
             connected = true
         )
-        homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.AQI)
+        homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
         HomeScreen(homieMobile, onNavigateToGuide = {})
     }
 }
 
-@Preview (showBackground = true)
+// @Preview (showBackground = true)
 @Composable
 fun GuideScreenPreview() {
     HomieAppTheme {
-        GuideScreen(onNavigateToHome = {})
+        GuideScreen(1, onNavigateToHome = {}, addPage = {}, restPage = {})
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun AlertScreenPreview() {
+    HomieAppTheme {
+        val homieMobile = HomieMobile(
+            22,
+            40,
+            aqi = 200,
+            state = 0,
+            id = "000001",
+            name = "Homie Mobile",
+            register = true,
+            connected = true
+        )
+        homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
+        AlertsScreen(homieMobile)
     }
 }
 
@@ -564,24 +778,24 @@ fun colorTemperature(temperature: Int): Color {
     return Color(r, g, 0)
 }
 
-fun colorHumidity(Humidity: Int): Color {
+fun colorHumidity(humidity: Int): Color {
     var r: Int
     var g: Int
-    if ( Humidity > 45) {
-        if (Humidity < 56) {
+    if ( humidity > 45) {
+        if (humidity < 56) {
             g = 255
-            r = 255 - 26 * (55 - Humidity)
+            r = 255 - 26 * (55 - humidity)
         } else {
             r = 255
-            g = 255 - 17 * (Humidity - 55)
+            g = 255 - 17 * (humidity - 55)
         }
     } else {
-        if (Humidity > 35) {
+        if (humidity > 35) {
             g = 255
-            r = 255 - 26 * (Humidity - 35)
+            r = 255 - 26 * (humidity - 35)
         } else {
             r = 255
-            g = 255 - 17 * (35 - Humidity)
+            g = 255 - 17 * (35 - humidity)
         }
     }
     if (r < 0) r = 0
@@ -590,9 +804,33 @@ fun colorHumidity(Humidity: Int): Color {
     return Color(r, g, 0)
 }
 
-fun getState(temperature: Int, humidity: Int, AQI: Int): Int {
-    return if (AQI > 150) 7
-    else if (AQI > 100) 6
+fun colorAQI(AQI: Int): Color {
+    var r: Int
+    var g: Int = 0
+    var b: Int = 0
+
+    if (AQI < 76) {
+        g = 255
+        r = (AQI - 25) * (255/50)
+    } else if (AQI < 201) {
+        r = 255
+        g = 255 - (AQI-76) * 255 / 100
+    } else if (AQI < 300) {
+        r = 67
+        b = 115
+    } else {
+        r = 115
+    }
+
+    if (r < 0) r = 0
+    if (g < 0) g = 0
+
+    return Color(r, g, b)
+}
+
+fun getState(temperature: Int, humidity: Int, aqi: Int): Int {
+    return if (aqi > 150) 7
+    else if (aqi > 100) 6
     else if (temperature !in 16..28) {
         if (humidity !in 30..70) 5
         else if (temperature < 16) 2
@@ -636,11 +874,48 @@ val domeState = intArrayOf(
     R.drawable.dead_dommy
 )
 
+val iconState = intArrayOf(
+    R.drawable.check,
+    R.drawable.emergency_heat,
+    R.drawable.mode_cool,
+    R.drawable.humidity_high,
+    R.drawable.humidity_low,
+    R.drawable.warning,
+    R.drawable.airwave,
+    R.drawable.e911_emergency
+)
+
+object NotificationHelper {
+    const val CHANNEL_ID = "my_basic_channel"
+
+    fun createNotificationChannel(context: Context) {
+        val name = "Notificaciones de App"
+        val importance = NotificationManager.IMPORTANCE_DEFAULT
+        val channel = NotificationChannel(CHANNEL_ID, name, importance)
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(channel)
+    }
+
+    fun sendNotification(context: Context, title: String, message: String) {
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.homie_icon)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+
+        if (ActivityCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            NotificationManagerCompat.from(context).notify(System.currentTimeMillis().toInt(), builder.build())
+        }
+    }
+}
+
 // Classes
 data class HomieMobile(
     var temperature: Int = 21,
     var humidity: Int = 41,
-    var AQI: Int = 67,
+    var aqi: Int = 67,
     var state: Int = 0,
     var id: String = "000000",
     var name: String = "Homie Mobile",

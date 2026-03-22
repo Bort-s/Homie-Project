@@ -12,5 +12,4 @@ data class Guides(
 data class Block(
     val title: String,
     val content: String,
-    val icon: Int,
 )
