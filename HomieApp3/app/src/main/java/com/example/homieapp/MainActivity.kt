@@ -1,11 +1,13 @@
 package com.example.homieapp
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -34,6 +36,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,12 +68,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -109,6 +119,9 @@ fun HomieAppApp() {
         while(isActive) {
             delay(1000)
             homieMobile = homieMobile.copy(
+                colorTemperature = colorTemperature(homieMobile.temperature),
+                colorHumidity = colorHumidity(homieMobile.humidity),
+                colorAQ = colorAQI(homieMobile.aqi),
                 temperature = homieMobileData.getLatest(homieMobile.temperature),
                 humidity = homieMobileData.getLatest(homieMobile.humidity),
                 aqi = if(homieMobile.aqi in 0..500) homieMobile.aqi + (-10..10).random() else homieMobile.aqi,
@@ -158,9 +171,15 @@ fun HomieAppApp() {
                 when (currentDestination) {
                 AppDestinations.HOME -> HomeScreen(homieMobile,
                     onNavigateToGuide = { currentDestination = AppDestinations.GUIDE })
-                AppDestinations.DEVICES -> DevicesScreen(homieMobile,
-                    onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE })
-                    AppDestinations.HOMIEMOBILE -> HomieMobileScreen(homieMobile)
+                AppDestinations.DEVICES -> DevicesScreen(
+                    homieMobile,
+                    onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE },
+                    onRegisterDevice = {newId ->
+                        homieMobile.id = newId
+                        homieMobile.register = true
+                    })
+                    AppDestinations.HOMIEMOBILE -> HomieMobileScreen(homieMobile,
+                        onNavigateToDevice = { currentDestination = AppDestinations.DEVICES })
                     AppDestinations.ACTIVATOR -> ActivatorScreen()
                 AppDestinations.Alerts -> AlertsScreen(homieMobile)
                     AppDestinations.GUIDE -> GuideScreen(
@@ -193,10 +212,6 @@ enum class AppDestinations(
 fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
     var expandedInfo by remember { mutableStateOf(false) }
     var showSheet by remember { mutableStateOf(false) }
-
-    val colorTemperature = colorTemperature(homieMobile.temperature)
-    val colorHumidity = colorHumidity(homieMobile.humidity)
-    val colorAQ = colorAQI(homieMobile.aqi)
 
     val percentage: Float = ((500 - (homieMobile.aqi).toFloat().coerceIn(0f, 500f)) / 500)
 
@@ -273,13 +288,13 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                     modifier = Modifier
                                         .size(64.dp)
                                         .clip(CircleShape)
-                                        .background(colorTemperature.copy(alpha = 0.1f)),
+                                        .background(homieMobile.colorTemperature.copy(alpha = 0.1f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = ImageVector.vectorResource(id = R.drawable.device_thermostat),
                                         contentDescription = "Termostato",
-                                        tint = colorTemperature,
+                                        tint = homieMobile.colorTemperature,
                                         modifier = Modifier.size(32.dp)
                                     )
                                 }
@@ -300,13 +315,13 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                     modifier = Modifier
                                         .size(64.dp)
                                         .clip(CircleShape)
-                                        .background(colorHumidity.copy(alpha = 0.1f)),
+                                        .background(homieMobile.colorHumidity.copy(alpha = 0.1f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = ImageVector.vectorResource(id = R.drawable.water_drop),
                                         contentDescription = "Humedad",
-                                        tint = colorHumidity,
+                                        tint = homieMobile.colorHumidity,
                                         modifier = Modifier.size(32.dp)
                                     )
                                 }
@@ -326,13 +341,13 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                 modifier = Modifier
                                     .size(64.dp)
                                     .clip(CircleShape)
-                                    .background(colorAQ.copy(alpha = 0.1f)),
+                                    .background(homieMobile.colorAQ.copy(alpha = 0.1f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = ImageVector.vectorResource(id = R.drawable.air),
                                     contentDescription = "Aire",
-                                    tint = colorAQ,
+                                    tint = homieMobile.colorAQ,
                                     modifier = Modifier.size(32.dp)
                                 )
                             }
@@ -356,7 +371,7 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                         .fillMaxHeight()
                                         .fillMaxWidth(percentage)
                                         .clip(CircleShape)
-                                        .background(colorAQ)
+                                        .background(homieMobile.colorAQ)
                                 )
                             }
                         }
@@ -421,62 +436,109 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
 }
 
 @Composable
-fun DevicesScreen(homieMobile: HomieMobile, onNavigateToHomieMobile: () -> Unit)  {
+fun DevicesScreen(
+    homieMobile: HomieMobile,
+    onNavigateToHomieMobile: () -> Unit,
+    onRegisterDevice: (String) -> Unit)  {
+    var showHMIDMenu by remember { mutableStateOf(false) }
+    var id by remember { mutableStateOf("") }
+
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(vertical = 16.dp, horizontal = 8.dp)) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(bottom = 16.dp)) {
                 PrincipalText("Dispositivos", 24, modifier = Modifier.padding(vertical = 8.dp))
                 Spacer(modifier = Modifier.height(16.dp))
-                DeviceCard(
-                    name = homieMobile.name,
-                    type = "Homie Mobile",
-                    connected = homieMobile.connected,
-                    R.drawable.homie_mobile,
-                    homieMobile.register,
-                    onNavigateToHomieMobile,
-                     {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                        DeviceCard(
+                            name = homieMobile.name,
+                            type = "Homie Mobile",
+                            connected = homieMobile.connected,
+                            R.drawable.homie_mobile,
+                            homieMobile.register,
+                            onClick = {
+                                if (homieMobile.register) onNavigateToHomieMobile()
+                                else showHMIDMenu = true
+                            },
+                            composables = {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    Text(
+                                        text = "${homieMobile.temperature}°C",
+                                        color = homieMobile.colorTemperature,
+                                        fontSize = 32.sp,
+                                    )
+                                    Text(
+                                        text = "${homieMobile.humidity}%",
+                                        color = homieMobile.colorHumidity,
+                                        fontSize = 32.sp,
+                                    )
+                                    Text(
+                                        text = "AQI: ${homieMobile.aqi}",
+                                        color = homieMobile.colorAQ,
+                                        fontSize = 32.sp,
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    item {
 
                     }
-                )
+                }
             }
         }
     }
-
-    var mostrarMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // lanza el menú
-        Button(onClick = { mostrarMenu = true }) {
-            Text("Abrir Menú")
-        }
-
-        // 3. El componente emergente
-        if (mostrarMenu) {
+        if (showHMIDMenu) {
             AlertDialog(
-                // Se llama cuando el usuario intenta cerrar (clic fuera o atrás)
                 onDismissRequest = {
-                    // Si quieres que NO se cierre al hacer clic fuera, deja esto vacío
-                    // mostrarMenu = false
+                    showHMIDMenu = false
                 },
                 confirmButton = {
-                    TextButton(onClick = { mostrarMenu = false }) {
+                    TextButton(
+                        onClick = {
+                            showHMIDMenu = false
+                            homieMobile.register = true
+                            homieMobile.id = id
+                            onRegisterDevice(id)
+                        }) {
                         Text("Confirmar y Cerrar")
                     }
                 },
-                title = { Text("Menú de Opciones") },
+                title = { Text("Registrar Dispositivo") },
                 text = {
                     Column {
-                        Text("Este es un menú pequeño y centrado.")
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Solo se cerrará cuando presiones Confirmar.")
+                        Text("Ingrese el ID del dispositivo")
+                        OutlinedTextField(
+                            value = id,
+                            label = { Text("ID") },
+                            onValueChange = { id = it },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    keyboardController?.hide()
+                                }
+                            )
+                        )
                     }
                 }
             )
@@ -484,12 +546,81 @@ fun DevicesScreen(homieMobile: HomieMobile, onNavigateToHomieMobile: () -> Unit)
     }
 }
 
-@Composable
-fun HomieMobileScreen(homieMobile: HomieMobile)  {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
 
+@Composable
+fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit)  {
+    val connectionColor = if (homieMobile.connected) colorResource(R.color.green_homie) else colorResource(R.color.alert_color)
+    val connectionStatus = if (homieMobile.connected) "Conectado" else "Desconectado"
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize().padding(vertical = 16.dp, horizontal = 8.dp)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    IconButton(onClick = onNavigateToDevice) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.arrow_back),
+                            contentDescription = "Regresar",
+                            tint = Color(0xFF0055d4),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),) {
+                        PrincipalText("Homie Mobile", 24, modifier = Modifier.padding(start = 8.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(128.dp)
+                                .clip(CircleShape)
+                                .border(width = 2.dp, color = connectionColor, shape = CircleShape)
+                                .background(connectionColor.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = connectionStatus,
+                                color = connectionColor,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    Column(modifier = Modifier
+                        .padding(vertical = 8.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surface)) {
+                        Row(horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .padding(start = 16.dp, bottom = 8.dp, top = 16.dp)
+                                .fillMaxWidth()
+                        ){
+                            Image(
+                                painter = painterResource(domeState[homieMobile.state]),
+                                contentDescription = "Dom-e",
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .padding(end = 8.dp)
+                            )
+                            PrincipalText("Consejo de Dom-e", 24)
+                        }
+                        SecondaryText(advice[homieMobile.state], 20, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        }
     }
 }
+
+
 
 @Composable
 fun ActivatorScreen()  {
@@ -497,6 +628,14 @@ fun ActivatorScreen()  {
 
     }
 }
+@Preview (showBackground = true)
+@Composable
+fun HomieMobilePreview() {
+    HomieAppTheme {
+        HomieMobileScreen(HomieMobile(), onNavigateToDevice = {})
+    }
+}
+
 
 
 @Composable
@@ -785,7 +924,7 @@ fun AlertCard(title: String, state: Int, value: String, color: Color, hour: Stri
 }
 
 @Composable
-fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, registed: Boolean, onClick: () -> Unit, composables: @Composable () -> Unit) {
+fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, registed: Boolean, onClick: () -> Unit, composables: @Composable () -> Unit, modifier: Modifier = Modifier) {
     val connectionColor = if (connected) colorResource(R.color.green_homie) else colorResource(R.color.alert_color)
     val connectionStatus = if (connected) "Conectado" else "Desconectado"
 
@@ -806,7 +945,7 @@ fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, regist
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween)
             {
                 Box(
@@ -851,14 +990,13 @@ fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, regist
                 Box(modifier = Modifier.weight(1f)) {
                     if (registed) composables()
                     else {
-                        PrincipalText("No esta registrado", 32)
+                        SecondaryText("El dispositivo no esta registrado, haga click para registrarlo", 12)
                     }
                 }
             }
         }
     }
 }
-
 
 
 
@@ -872,9 +1010,9 @@ fun HomeScreenPreview() {
             45,
             aqi = 67,
             state = 0,
-            id = "000001",
+            id = "000000",
             name = "Homie Mobile",
-            register = true,
+            register = false,
             connected = true
         )
         homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
@@ -905,7 +1043,7 @@ fun DevicesScreenPreview() {
             connected = true,
         )
         homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
-        DevicesScreen(homieMobile, onNavigateToHomieMobile = {})
+        DevicesScreen(homieMobile, onNavigateToHomieMobile = {}, onRegisterDevice = {})
     }
 }
 
@@ -928,7 +1066,6 @@ fun AlertScreenPreview() {
         AlertsScreen(homieMobile)
     }
 }
-
 
 // Functions
 fun colorTemperature(temperature: Int): Color {
@@ -1099,7 +1236,10 @@ data class HomieMobile(
     var id: String = "000000",
     var name: String = "Homie Mobile",
     var register: Boolean = false,
-    var connected: Boolean = false
+    var connected: Boolean = false,
+    var colorTemperature: Color = Color.Unspecified,
+    var colorHumidity: Color = Color.Unspecified,
+    var colorAQ: Color = Color.Unspecified,
 )
 
 class Activator(
