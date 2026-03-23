@@ -15,9 +15,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -32,6 +34,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -44,6 +47,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -62,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -153,7 +158,10 @@ fun HomieAppApp() {
                 when (currentDestination) {
                 AppDestinations.HOME -> HomeScreen(homieMobile,
                     onNavigateToGuide = { currentDestination = AppDestinations.GUIDE })
-                AppDestinations.DEVICES -> DevicesScreen()
+                AppDestinations.DEVICES -> DevicesScreen(homieMobile,
+                    onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE })
+                    AppDestinations.HOMIEMOBILE -> HomieMobileScreen(homieMobile)
+                    AppDestinations.ACTIVATOR -> ActivatorScreen()
                 AppDestinations.Alerts -> AlertsScreen(homieMobile)
                     AppDestinations.GUIDE -> GuideScreen(
                         guidePage,
@@ -175,7 +183,9 @@ enum class AppDestinations(
     HOME("Home", R.drawable.home),
     DEVICES("Devices", R.drawable.home_iot_device),
     Alerts("Alerts", R.drawable.notification_important_24dp_1f1f1f_fill0_wght400_grad0_opsz24),
-    GUIDE("Guía", R.drawable.info, showInBottomBar = false)
+    GUIDE("Guía", R.drawable.info, showInBottomBar = false),
+    HOMIEMOBILE("Homie Mobile", R.drawable.homie_mobile, showInBottomBar = false),
+    ACTIVATOR("Activator", R.drawable.arrow_forward_ios, showInBottomBar = false),
 }
 
 // Layout Composables
@@ -411,11 +421,83 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
 }
 
 @Composable
-fun DevicesScreen()  {
+fun DevicesScreen(homieMobile: HomieMobile, onNavigateToHomieMobile: () -> Unit)  {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize().padding(vertical = 16.dp, horizontal = 8.dp)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)) {
+                PrincipalText("Dispositivos", 24, modifier = Modifier.padding(vertical = 8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                DeviceCard(
+                    name = homieMobile.name,
+                    type = "Homie Mobile",
+                    connected = homieMobile.connected,
+                    R.drawable.homie_mobile,
+                    homieMobile.register,
+                    onNavigateToHomieMobile,
+                     {
+
+                    }
+                )
+            }
+        }
+    }
+
+    var mostrarMenu by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // lanza el menú
+        Button(onClick = { mostrarMenu = true }) {
+            Text("Abrir Menú")
+        }
+
+        // 3. El componente emergente
+        if (mostrarMenu) {
+            AlertDialog(
+                // Se llama cuando el usuario intenta cerrar (clic fuera o atrás)
+                onDismissRequest = {
+                    // Si quieres que NO se cierre al hacer clic fuera, deja esto vacío
+                    // mostrarMenu = false
+                },
+                confirmButton = {
+                    TextButton(onClick = { mostrarMenu = false }) {
+                        Text("Confirmar y Cerrar")
+                    }
+                },
+                title = { Text("Menú de Opciones") },
+                text = {
+                    Column {
+                        Text("Este es un menú pequeño y centrado.")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Solo se cerrará cuando presiones Confirmar.")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun HomieMobileScreen(homieMobile: HomieMobile)  {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
 
     }
 }
+
+@Composable
+fun ActivatorScreen()  {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+
+    }
+}
+
 
 @Composable
 fun AlertsScreen(homieMobile: HomieMobile) {
@@ -702,6 +784,83 @@ fun AlertCard(title: String, state: Int, value: String, color: Color, hour: Stri
     Spacer(modifier = Modifier.height(16.dp))
 }
 
+@Composable
+fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, registed: Boolean, onClick: () -> Unit, composables: @Composable () -> Unit) {
+    val connectionColor = if (connected) colorResource(R.color.green_homie) else colorResource(R.color.alert_color)
+    val connectionStatus = if (connected) "Conectado" else "Desconectado"
+
+
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            disabledContainerColor = MaterialTheme.colorScheme.surface,
+        ),
+        shape = RoundedCornerShape(20.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth(),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween)
+            {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF0055D4).copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(icon),
+                        contentDescription = "Icono",
+                        modifier = Modifier.size(48.dp),
+                        tint = Color(0xFF0055D4)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .width(128.dp)
+                        .clip(CircleShape)
+                        .border(width = 2.dp, color = connectionColor, shape = CircleShape)
+                        .background(connectionColor.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = connectionStatus,
+                        color = connectionColor,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(4.dp)
+                    )
+                }
+
+            }
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Top,
+                    horizontalAlignment = Alignment.Start) {
+                    PrincipalText(name, 24)
+                    SecondaryText(type, 16)
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    if (registed) composables()
+                    else {
+                        PrincipalText("No esta registrado", 32)
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
 
 // Composable Preview
 //@Preview(showBackground = true)
@@ -732,6 +891,26 @@ fun GuideScreenPreview() {
 }
 
 @Preview(showBackground = true)
+@Composable
+fun DevicesScreenPreview() {
+    HomieAppTheme {
+        val homieMobile = HomieMobile(
+            22,
+            40,
+            aqi = 200,
+            state = 0,
+            id = "000001",
+            name = "Homie Mobile",
+            register = true,
+            connected = true,
+        )
+        homieMobile.state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
+        DevicesScreen(homieMobile, onNavigateToHomieMobile = {})
+    }
+}
+
+
+//@Preview(showBackground = true)
 @Composable
 fun AlertScreenPreview() {
     HomieAppTheme {
@@ -921,6 +1100,13 @@ data class HomieMobile(
     var name: String = "Homie Mobile",
     var register: Boolean = false,
     var connected: Boolean = false
+)
+
+class Activator(
+    var id: String = "000000",
+    var name: String = "Activator",
+    var register: Boolean = false,
+    var connected: Boolean = false,
 )
 
 class GetHomieMobileData {
