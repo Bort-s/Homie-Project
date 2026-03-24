@@ -16,6 +16,9 @@ int temperature;
 int humidity;
 int gas_resistance;
 int alertData;
+int AQI;
+float hum_score;
+float gas_score;
 
 const int buzzer = 5;
 
@@ -113,7 +116,6 @@ void setup() {
 }
 
 void loop() {
-
     if (!MainSensor.performReading()) {
     Serial.println("Failed to perform reading :(");
     delay(1000);
@@ -124,24 +126,25 @@ void loop() {
     humidity = MainSensor.humidity;
     gas_resistance = MainSensor.gas_resistance;
 
-    if (gas_resistance < 10000) {
-        alertData = 1;
-        tone(buzzer, 2700);
-    } else if (gas_resistance < 50000) {
-        noTone(buzzer);
-    } else if (gas_resistance < 100000) {
-        alertData = 3;
-        noTone(buzzer);
-    } else {
-        alertData = 4;
-        noTone(buzzer);
-    }
+    AQI = map(gas_resistance, 0, 35000, 500, 0);
+
+    Serial.print("Temperatura: ");
+    Serial.println(temperature);
+
+    Serial.print("Humedad: ");
+    Serial.println(humidity);
+
+    Serial.print("Resistencia de gas: ");
+    Serial.println(gas_resistance);
+
+    Serial.print("AQI: ");
+    Serial.println(AQI);
 
     if (deviceConnected && sendData) {
 
         String temperatureData = "TEMP:" + String(temperature);
         String humidityData = "HUM:" + String(humidity);
-        String airData = "PRES:" + String(alertData);
+        String AQIData = "AQI:" + String(AQI);
 
         pTxCharacteristic->setValue(temperatureData.c_str());
         pTxCharacteristic->notify();
@@ -151,10 +154,18 @@ void loop() {
         pTxCharacteristic->notify();
         Serial.println(humidityData);
 
-        pTxCharacteristic->setValue(airData.c_str());
+        pTxCharacteristic->setValue(AQIData.c_str());
         pTxCharacteristic->notify();
-        Serial.println(airData);
+        Serial.println(AQIData);
 
+    }
+    if (AQI > 300) {
+        tone(buzzer, 2700);
+        delay(500);
+        noTone(buzzer);
+        delay(500);
+    } else {
+        noTone(buzzer);
         delay(1000);
     }
 }
