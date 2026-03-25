@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -62,17 +63,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.vectorResource
@@ -86,21 +85,48 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
+import com.example.homieapp.bluetooth.BTManager
 import com.example.homieapp.model.Block
 import com.example.homieapp.ui.theme.HomieAppTheme
 import com.example.homieapp.viewmodels.GuidesViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private lateinit var btManager: BTManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        NotificationHelper.createNotificationChannel(this)
+
+        btManager = BTManager(this) { deviceName, type, value ->
+            Log.i("DATA_CHECK", "Incoming -> $type: $value")
+        }
+
         setContent {
             HomieAppTheme {
-                HomieAppApp()
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { permissions ->
+                    val allGranted = permissions.values.all { it }
+                    if (allGranted) {
+                        Log.d("BT_LOG", "Permissions granted by user.")
+                    } else {
+                        Log.e("BT_LOG", "Permissions denied.")
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    val permissionsNeeded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+                    } else {
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+
+                    permissionLauncher.launch(permissionsNeeded)
+                }
+
+                HomieAppApp(onStartScan = { btManager.startScanning() })
             }
         }
     }
@@ -108,7 +134,7 @@ class MainActivity : ComponentActivity() {
 
 // @PreviewScreenSizes
 @Composable
-fun HomieAppApp() {
+fun HomieAppApp(onStartScan: () -> Unit) {
     var guidePage by rememberSaveable { mutableIntStateOf(0) }
 
     // Homie Mobile
@@ -174,9 +200,9 @@ fun HomieAppApp() {
                 AppDestinations.DEVICES -> DevicesScreen(
                     homieMobile,
                     onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE },
-                    onRegisterDevice = {newId ->
-                        homieMobile.id = newId
-                        homieMobile.register = true
+                    onRegisterDevice = { newId ->
+                        homieMobile = homieMobile.copy(id = newId, register = true)
+                        onStartScan()
                     })
                     AppDestinations.HOMIEMOBILE -> HomieMobileScreen(homieMobile,
                         onNavigateToDevice = { currentDestination = AppDestinations.DEVICES })
@@ -514,8 +540,6 @@ fun DevicesScreen(
                     TextButton(
                         onClick = {
                             showHMIDMenu = false
-                            homieMobile.register = true
-                            homieMobile.id = id
                             onRegisterDevice(id)
                         }) {
                         Text("Confirmar y Cerrar")
@@ -628,6 +652,7 @@ fun ActivatorScreen()  {
 
     }
 }
+
 @Preview (showBackground = true)
 @Composable
 fun HomieMobilePreview() {
@@ -670,6 +695,9 @@ fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Uni
     val allGuides by viewmodel.listGuides.collectAsState()
     var currentGuide by remember { mutableIntStateOf(guidePage) }
     val guide = allGuides[currentGuide]
+
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -716,7 +744,7 @@ fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Uni
                     )
                 }
             }
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {
                 item {
                     Text(
                         "Capitulo ${guide.number}: ",
@@ -744,6 +772,9 @@ fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Uni
                                 restPage()
                                 currentGuide -= 1
                             }
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(0)
+                            }
                         },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.Transparent,
@@ -769,6 +800,9 @@ fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Uni
                             if (currentGuide < allGuides.size - 1) {
                                 addPage()
                                 currentGuide += 1
+                            }
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(0)
                             }
                         },
                             colors = ButtonDefaults.buttonColors(
