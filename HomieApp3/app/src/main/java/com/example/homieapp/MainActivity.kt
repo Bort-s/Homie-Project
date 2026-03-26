@@ -3,7 +3,13 @@ package com.example.homieapp
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -13,7 +19,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -49,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -69,7 +78,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -80,11 +95,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.homieapp.bluetooth.BTManager
 import com.example.homieapp.model.Block
 import com.example.homieapp.ui.theme.HomieAppTheme
@@ -96,11 +113,65 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private lateinit var btManager: BTManager
 
+    private var homieMobileState = mutableStateOf(HomieMobile())
+
+    private val bluetoothReceiver = object : BroadcastReceiver() {        override fun onReceive(context: Context?, intent: Intent?) {
+        val action = intent?.action
+        when (action) {
+            BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                homieMobileState.value = homieMobileState.value.copy(connected = true)
+                Log.d("BT_STATUS", "Device Connected")
+            }
+            BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                homieMobileState.value = homieMobileState.value.copy(connected = false)
+                Log.d("BT_STATUS", "Device Disconnected")
+            }
+        }
+    }
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+
+        val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+        if (connectedDevices.isNotEmpty()) {
+            homieMobileState.value = homieMobileState.value.copy(connected = true)
+        }
+
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+        }
+        registerReceiver(bluetoothReceiver, filter)
+
         btManager = BTManager(this) { deviceName, type, value ->
             Log.i("DATA_CHECK", "Incoming -> $type: $value")
+
+            val current = homieMobileState.value
+            homieMobileState.value = when (type) {
+                "TEMP" -> current.copy(
+                    temperature = value,
+                    temperatureHistory = current.temperatureHistory.addAndTrim(value),
+                    colorTemperature = colorTemperature(value),
+                    state = getState(value, current.humidity, current.aqi)
+                )
+                "HUM" -> current.copy(
+                    humidity = value,
+                    humidityHistory = current.humidityHistory.addAndTrim(value),
+                    colorHumidity = colorHumidity(value),
+                    state = getState(current.temperature, value, current.aqi)
+                )
+                "AQI" -> current.copy(
+                    aqi = value,
+                    aqiHistory = current.aqiHistory.addAndTrim(value),
+                    colorAQ = colorAQI(value),
+                    state = getState(current.temperature, current.humidity, value)
+                )
+                else -> current
+            }
         }
 
         setContent {
@@ -126,7 +197,17 @@ class MainActivity : ComponentActivity() {
                     permissionLauncher.launch(permissionsNeeded)
                 }
 
-                HomieAppApp(onStartScan = { btManager.startScanning() })
+                HomieAppApp(
+                    homieMobile = homieMobileState.value,
+                    onStartScan = { btManager.startScanning() },
+                    onRegisterDevice = { newId ->
+                        homieMobileState.value = homieMobileState.value.copy(
+                            id = newId,
+                            register = true
+                        )
+                        btManager.startScanning()
+                    }
+                )
             }
         }
     }
@@ -134,31 +215,16 @@ class MainActivity : ComponentActivity() {
 
 // @PreviewScreenSizes
 @Composable
-fun HomieAppApp(onStartScan: () -> Unit) {
+fun HomieAppApp(
+    homieMobile: HomieMobile,
+    onStartScan: () -> Unit,
+    onRegisterDevice: (String) -> Unit
+) {
     var guidePage by rememberSaveable { mutableIntStateOf(0) }
-
-    // Homie Mobile
-    val homieMobileData = remember { GetHomieMobileData() }
-    var homieMobile by remember { mutableStateOf(HomieMobile()) }
-
-    LaunchedEffect(Unit) {
-        while(isActive) {
-            delay(1000)
-            homieMobile = homieMobile.copy(
-                colorTemperature = colorTemperature(homieMobile.temperature),
-                colorHumidity = colorHumidity(homieMobile.humidity),
-                colorAQ = colorAQI(homieMobile.aqi),
-                temperature = homieMobileData.getLatest(homieMobile.temperature),
-                humidity = homieMobileData.getLatest(homieMobile.humidity),
-                aqi = if(homieMobile.aqi in 0..500) homieMobile.aqi + (-10..10).random() else homieMobile.aqi,
-                state = getState(homieMobile.temperature, homieMobile.humidity, homieMobile.aqi)
-            )
-        }
-    }
 
     // Colors
     val navigationColors = NavigationSuiteDefaults.itemColors(
-        navigationBarItemColors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+        navigationBarItemColors = NavigationBarItemDefaults.colors(
             selectedIconColor = Color(0xFF0055d4),
             selectedTextColor = Color(0xFF0055d4),
             unselectedIconColor = Color(0xFF7D7C7C),
@@ -197,16 +263,17 @@ fun HomieAppApp(onStartScan: () -> Unit) {
                 when (currentDestination) {
                 AppDestinations.HOME -> HomeScreen(homieMobile,
                     onNavigateToGuide = { currentDestination = AppDestinations.GUIDE })
-                AppDestinations.DEVICES -> DevicesScreen(
-                    homieMobile,
-                    onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE },
-                    onRegisterDevice = { newId ->
-                        homieMobile = homieMobile.copy(id = newId, register = true)
-                        onStartScan()
-                    })
+                    AppDestinations.DEVICES -> DevicesScreen(
+                        homieMobile,
+                        onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE },
+                        onRegisterDevice = { newId ->
+                            // Call the callback passed from MainActivity
+                            onRegisterDevice(newId)
+                        }
+                    )
                     AppDestinations.HOMIEMOBILE -> HomieMobileScreen(homieMobile,
-                        onNavigateToDevice = { currentDestination = AppDestinations.DEVICES })
-                    AppDestinations.ACTIVATOR -> ActivatorScreen()
+                        onNavigateToDevice = { currentDestination = AppDestinations.DEVICES },
+                        onNavigateToGuide = { currentDestination = AppDestinations.GUIDE })
                 AppDestinations.Alerts -> AlertsScreen(homieMobile)
                     AppDestinations.GUIDE -> GuideScreen(
                         guidePage,
@@ -230,7 +297,6 @@ enum class AppDestinations(
     Alerts("Alerts", R.drawable.notification_important_24dp_1f1f1f_fill0_wght400_grad0_opsz24),
     GUIDE("Guía", R.drawable.info, showInBottomBar = false),
     HOMIEMOBILE("Homie Mobile", R.drawable.homie_mobile, showInBottomBar = false),
-    ACTIVATOR("Activator", R.drawable.arrow_forward_ios, showInBottomBar = false),
 }
 
 // Layout Composables
@@ -383,7 +449,7 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                                 ) {
                                 PrincipalText("Calidad del aire", 16)
                                 SecondaryText("Exellent", 14)
-                                SecondaryText("AQI: ${homieMobile.aqi}, State: ${homieMobile.state}", 14)
+                                SecondaryText("AQI: ${homieMobile.aqi}", 14)
                             }
                             Box(
                                 modifier = Modifier
@@ -452,7 +518,7 @@ fun HomeScreen(homieMobile: HomieMobile, onNavigateToGuide: () -> Unit) {
                             )
                             PrincipalText("Dato ambiental del dia", 24)
                         }
-                        SecondaryText(facts[2], 16, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+                        SecondaryText(facts[1], 16, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -489,7 +555,10 @@ fun DevicesScreen(
                             R.drawable.homie_mobile,
                             homieMobile.register,
                             onClick = {
-                                if (homieMobile.register) onNavigateToHomieMobile()
+                                if (homieMobile.register) {
+                                    onNavigateToHomieMobile()
+                                    onRegisterDevice(id)
+                                }
                                 else showHMIDMenu = true
                             },
                             composables = {
@@ -572,7 +641,7 @@ fun DevicesScreen(
 
 
 @Composable
-fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit)  {
+fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit, onNavigateToGuide: () -> Unit)  {
     val connectionColor = if (homieMobile.connected) colorResource(R.color.green_homie) else colorResource(R.color.alert_color)
     val connectionStatus = if (homieMobile.connected) "Conectado" else "Desconectado"
 
@@ -614,6 +683,29 @@ fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit) 
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
+                    MeasureCard(
+                        homieMobile.temperatureHistory,
+                        homieMobile.colorTemperature,
+                        "Temperatura",
+                        R.drawable.device_thermostat,
+                        "°C"
+                    )
+                    MeasureCard(
+                        homieMobile.humidityHistory,
+                        homieMobile.colorHumidity,
+                        "Humedad",
+                        R.drawable.water_drop,
+                        "%"
+                    )
+                    MeasureCard(
+                        homieMobile.aqiHistory,
+                        homieMobile.colorAQ,
+                        "AQI",
+                        R.drawable.air,
+                        ""
+                    )
+                }
+                item {
                     Column(modifier = Modifier
                         .padding(vertical = 8.dp)
                         .fillMaxWidth()
@@ -635,6 +727,11 @@ fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit) 
                             PrincipalText("Consejo de Dom-e", 24)
                         }
                         SecondaryText(advice[homieMobile.state], 20, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+                        TextButton(onClick = onNavigateToGuide) {
+                            Text(
+                                text = "Consulta Nuestra Guia",
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -644,20 +741,11 @@ fun HomieMobileScreen(homieMobile: HomieMobile, onNavigateToDevice: () -> Unit) 
     }
 }
 
-
-
-@Composable
-fun ActivatorScreen()  {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-
-    }
-}
-
 @Preview (showBackground = true)
 @Composable
 fun HomieMobilePreview() {
     HomieAppTheme {
-        HomieMobileScreen(HomieMobile(), onNavigateToDevice = {})
+        HomieMobileScreen(HomieMobile(), onNavigateToDevice = {}, onNavigateToGuide = {})
     }
 }
 
@@ -691,7 +779,7 @@ fun AlertsScreen(homieMobile: HomieMobile) {
 
 @Composable
 fun GuideScreen(guidePage: Int, onNavigateToHome: () -> Unit, addPage: () -> Unit, restPage: () -> Unit) {
-    val viewmodel: GuidesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val viewmodel: GuidesViewModel = viewModel()
     val allGuides by viewmodel.listGuides.collectAsState()
     var currentGuide by remember { mutableIntStateOf(guidePage) }
     val guide = allGuides[currentGuide]
@@ -1032,7 +1120,115 @@ fun DeviceCard(name: String, type: String, connected: Boolean, icon: Int, regist
     }
 }
 
+@Composable
+fun LayoutGraph(data: List<Int>,
+    modifier: Modifier = Modifier,
+    lineColor: Color = Color(0xFF0055D4),
+    lineWidth: Dp = 4.dp
+) {
+    Canvas(modifier = modifier.padding(8.dp)) {
+        // 1. Verificación de seguridad
+        if (data.size < 2) return@Canvas
 
+        val spacing = size.width / (data.size - 1) // Espacio horizontal entre puntos
+        val maxVal = data.maxOrNull()?.toFloat() ?: 0f
+        val minVal = data.minOrNull()?.toFloat() ?: 0f
+
+        val path = Path()
+        val points = mutableListOf<Offset>()
+
+        for (i in data.indices) {
+            val x = i * spacing
+            val yPercentage = (data[i].toFloat() - minVal) / (maxVal - minVal)
+            val y = size.height - (yPercentage * size.height)
+            points.add(Offset(x, y))
+        }
+
+        for (i in 0 until points.size - 1) {
+            if (i == 0) {
+                path.moveTo(points[0].x, points[0].y)
+            }
+
+            val startPoint = points[i]
+            val endPoint = points[i + 1]
+
+            val smoothness = spacing / 2.5f
+
+            val controlPoint1 = Offset(
+                x = startPoint.x + smoothness,
+                y = startPoint.y
+            )
+            val controlPoint2 = Offset(
+                x = endPoint.x - smoothness,
+                y = endPoint.y
+            )
+
+            path.cubicTo(
+                controlPoint1.x, controlPoint1.y,
+                controlPoint2.x, controlPoint2.y,
+                endPoint.x, endPoint.y
+            )
+        }
+
+        drawPath(
+            path = path,
+            color = lineColor,
+            style = Stroke(
+                width = lineWidth.toPx(),
+
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
+@Composable
+fun MeasureCard(data: List<Int>, color: Color, name: String, icon: Int, symbol: String) {
+    Column(modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Box(contentAlignment = Alignment.Center,
+                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(20.dp))
+                    .background(color.copy(alpha = 0.2f))
+            ) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = "Icono",
+                    modifier = Modifier.size(48.dp),
+                    tint = color
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(start = 8.dp)
+            ) {
+                PrincipalText(name, 32)
+                PrincipalText("${data.lastOrNull()}$symbol", 32)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            LayoutGraph(
+                data = data,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
 
 // Composable Preview
 //@Preview(showBackground = true)
@@ -1062,7 +1258,7 @@ fun GuideScreenPreview() {
     }
 }
 
-@Preview(showBackground = true)
+// @Preview(showBackground = true)
 @Composable
 fun DevicesScreenPreview() {
     HomieAppTheme {
@@ -1191,6 +1387,15 @@ fun getState(temperature: Int, humidity: Int, aqi: Int): Int {
     else 0
 }
 
+fun <T> List<T>.addAndTrim(element: T, maxSize: Int = 60): List<T> {
+    val mutableList = this.toMutableList()
+    mutableList.add(element)
+    if (mutableList.size > maxSize) {
+        mutableList.removeAt(0)
+    }
+    return mutableList.toList()
+}
+
 // Arrays
 
 val advice = arrayOf(
@@ -1255,7 +1460,7 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 
-        if (ActivityCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             NotificationManagerCompat.from(context).notify(System.currentTimeMillis().toInt(), builder.build())
         }
     }
@@ -1263,9 +1468,9 @@ object NotificationHelper {
 
 // Classes
 data class HomieMobile(
-    var temperature: Int = 21,
-    var humidity: Int = 41,
-    var aqi: Int = 67,
+    var temperature: Int = 0,
+    var humidity: Int = 0,
+    var aqi: Int = 0,
     var state: Int = 0,
     var id: String = "000000",
     var name: String = "Homie Mobile",
@@ -1274,6 +1479,9 @@ data class HomieMobile(
     var colorTemperature: Color = Color.Unspecified,
     var colorHumidity: Color = Color.Unspecified,
     var colorAQ: Color = Color.Unspecified,
+    var temperatureHistory: List<Int> = emptyList(),
+    var humidityHistory: List<Int> = emptyList(),
+    var aqiHistory: List<Int> = emptyList(),
 )
 
 class Activator(
@@ -1288,3 +1496,4 @@ class GetHomieMobileData {
         return vall + (-1..1).random()
     }
 }
+
