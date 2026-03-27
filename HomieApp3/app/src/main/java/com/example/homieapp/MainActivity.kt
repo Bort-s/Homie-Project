@@ -17,13 +17,9 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +64,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,16 +76,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -106,46 +102,65 @@ import com.example.homieapp.bluetooth.BTManager
 import com.example.homieapp.model.Block
 import com.example.homieapp.ui.theme.HomieAppTheme
 import com.example.homieapp.viewmodels.GuidesViewModel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.Image
 
 class MainActivity : ComponentActivity() {
     private lateinit var btManager: BTManager
 
     private var homieMobileState = mutableStateOf(HomieMobile())
 
-    private val bluetoothReceiver = object : BroadcastReceiver() {        override fun onReceive(context: Context?, intent: Intent?) {
-        val action = intent?.action
-        when (action) {
-            BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                homieMobileState.value = homieMobileState.value.copy(connected = true)
-                Log.d("BT_STATUS", "Device Connected")
-            }
-            BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                homieMobileState.value = homieMobileState.value.copy(connected = false)
-                Log.d("BT_STATUS", "Device Disconnected")
+    private val bluetoothReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            when (action) {
+                BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                    homieMobileState.value = homieMobileState.value.copy(connected = true)
+                    Log.d("BT_STATUS", "Device Connected")
+                }
+                BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                    homieMobileState.value = homieMobileState.value.copy(connected = false)
+                    Log.d("BT_STATUS", "Device Disconnected")
+                }
             }
         }
     }
+
+    private fun checkBluetoothConnection() {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true // BLUETOOTH is a normal permission below API 31
+        }
+
+        if (hasPermission) {
+            try {
+                val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+                if (connectedDevices.isNotEmpty()) {
+                    homieMobileState.value = homieMobileState.value.copy(connected = true)
+                }
+            } catch (e: SecurityException) {
+                Log.e("BT_LOG", "SecurityException checking connection: ${e.message}")
+            }
+        }
     }
 
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-
-        val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
-        if (connectedDevices.isNotEmpty()) {
-            homieMobileState.value = homieMobileState.value.copy(connected = true)
-        }
+        checkBluetoothConnection()
 
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
-        registerReceiver(bluetoothReceiver, filter)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(bluetoothReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(bluetoothReceiver, filter)
+        }
 
         btManager = BTManager(this) { deviceName, type, value ->
             Log.i("DATA_CHECK", "Incoming -> $type: $value")
@@ -182,6 +197,7 @@ class MainActivity : ComponentActivity() {
                     val allGranted = permissions.values.all { it }
                     if (allGranted) {
                         Log.d("BT_LOG", "Permissions granted by user.")
+                        checkBluetoothConnection()
                     } else {
                         Log.e("BT_LOG", "Permissions denied.")
                     }
@@ -1495,4 +1511,3 @@ class GetHomieMobileData {
         return vall + (-1..1).random()
     }
 }
-
