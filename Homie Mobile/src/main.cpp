@@ -126,7 +126,7 @@ void loop() {
     humidity = MainSensor.humidity;
     gas_resistance = MainSensor.gas_resistance;
 
-    AQI = map(gas_resistance, 0, 50000, 500, 0);
+    AQI = map(gas_resistance, 0, 70000, 500, 0);
 
     Serial.print("Temperatura: ");
     Serial.println(temperature);

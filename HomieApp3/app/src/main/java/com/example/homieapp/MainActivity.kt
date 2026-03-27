@@ -267,7 +267,6 @@ fun HomieAppApp(
                         homieMobile,
                         onNavigateToHomieMobile = { currentDestination = AppDestinations.HOMIEMOBILE },
                         onRegisterDevice = { newId ->
-                            // Call the callback passed from MainActivity
                             onRegisterDevice(newId)
                         }
                     )
